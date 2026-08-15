@@ -7,7 +7,7 @@
   "vars": {
     "ENVIRONMENT": "production",
     "FIREBASE_PROJECT_ID": "enquete-ia-sabe-codar",
-    "ALLOWED_ORIGINS": "https://enquete-ia-sabe-codar.web.app,https://enquete-ia-sabe-codar.firebaseapp.com"
+    "ALLOWED_ORIGINS": "https://easyvote-polls.web.app,https://enquete-ia-sabe-codar.web.app,https://enquete-ia-sabe-codar.firebaseapp.com"
   },
   "secrets": {
     "required": [

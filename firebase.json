@@ -26,18 +26,36 @@
       "enabled": false
     }
   },
-  "hosting": {
-    "public": ".",
-    "ignore": [
-      "firebase.json",
-      "firestore.rules",
-      "firebase-debug.log",
-      "firebase-debug.*.log",
-      "firestore-debug.log",
-      "**/.*",
-      "**/node_modules/**",
-      "functions/**",
-      "worker/**"
-    ]
-  }
+  "hosting": [
+    {
+      "target": "easyvote",
+      "public": ".",
+      "ignore": [
+        "firebase.json",
+        "firestore.rules",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "firestore-debug.log",
+        "**/.*",
+        "**/node_modules/**",
+        "functions/**",
+        "worker/**"
+      ]
+    },
+    {
+      "target": "easyvote-legacy",
+      "public": ".",
+      "ignore": [
+        "firebase.json",
+        "firestore.rules",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "firestore-debug.log",
+        "**/.*",
+        "**/node_modules/**",
+        "functions/**",
+        "worker/**"
+      ]
+    }
+  ]
 }

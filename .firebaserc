@@ -1,5 +1,17 @@
 {
   "projects": {
     "default": "enquete-ia-sabe-codar"
+  },
+  "targets": {
+    "enquete-ia-sabe-codar": {
+      "hosting": {
+        "easyvote": [
+          "easyvote-polls"
+        ],
+        "easyvote-legacy": [
+          "enquete-ia-sabe-codar"
+        ]
+      }
+    }
   }
 }
