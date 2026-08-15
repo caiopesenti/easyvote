@@ -10,8 +10,6 @@ Create a poll, share the link or code, and watch the results update in real time
 
 **[Try EasyVote](https://easyvote-polls.web.app)**
 
-Legacy fallback: [enquete-ia-sabe-codar.web.app](https://enquete-ia-sabe-codar.web.app)
-
 ---
 
 ## Features
