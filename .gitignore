@@ -11,3 +11,4 @@ worker/.dev.vars*
 !worker/.dev.vars.example
 worker/.env*
 !worker/.env.example
+worker/.secrets*.json

@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { deleteApp, initializeApp } from "firebase/app";
-import { connectAuthEmulator, getAuth, signInAnonymously } from "firebase/auth";
+import {
+  connectAuthEmulator,
+  createUserWithEmailAndPassword,
+  getAuth,
+  GoogleAuthProvider,
+  signInWithCredential,
+  signInAnonymously
+} from "firebase/auth";
 import {
   collection,
   connectFirestoreEmulator,
@@ -33,8 +40,15 @@ const app = initializeApp({
 }, `worker-security-integration-${Date.now()}`);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const registeredApp = initializeApp({
+  apiKey: "worker-security-test-key",
+  appId: "worker-security-registered-test-app",
+  projectId
+}, `worker-security-registered-${Date.now()}`);
+const registeredAuth = getAuth(registeredApp);
 
 connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+connectAuthEmulator(registeredAuth, "http://127.0.0.1:9099", { disableWarnings: true });
 connectFirestoreEmulator(db, "127.0.0.1", 8080);
 
 async function callWorker(operation, data, { token, origin = allowedOrigin } = {}) {
@@ -136,6 +150,77 @@ try {
   assert.equal(publicPoll.data().question, "What's your favorite game?");
   assert.equal(publicPoll.data().ownerUid, auth.currentUser.uid);
 
+  const anonymousPolls = await callWorker("listMyPolls", {}, { token: idToken });
+  assert.equal(anonymousPolls.response.status, 200);
+  assert.equal(anonymousPolls.body.polls.some(item => item.code === poll.code), true);
+
+  const registeredCredential = await signInWithCredential(
+    registeredAuth,
+    GoogleAuthProvider.credential(JSON.stringify({
+      sub: `easyvote-google-${Date.now()}`,
+      email: `easyvote-${Date.now()}@example.test`,
+      email_verified: true,
+      name: "EasyVote Test User"
+    }))
+  );
+  const registeredToken = await registeredCredential.user.getIdToken();
+
+  await expectWorkerError(
+    () => callWorker(
+      "mergeAnonymousAccount",
+      { targetIdToken: registeredToken },
+      { token: registeredToken }
+    ),
+    "failed-precondition",
+    409
+  );
+
+  const passwordCredential = await createUserWithEmailAndPassword(
+    registeredAuth,
+    `password-${crypto.randomUUID()}@example.test`,
+    `EasyVote-${crypto.randomUUID()}`
+  );
+  const passwordToken = await passwordCredential.user.getIdToken();
+  await expectWorkerError(
+    () => callWorker(
+      "mergeAnonymousAccount",
+      { targetIdToken: passwordToken },
+      { token: idToken }
+    ),
+    "invalid-argument",
+    400
+  );
+
+  await expectWorkerError(
+    () => callWorker("mergeAnonymousAccount", { targetIdToken: idToken }, { token: idToken }),
+    "invalid-argument",
+    400
+  );
+
+  const merge = await callWorker(
+    "mergeAnonymousAccount",
+    { targetIdToken: registeredToken },
+    { token: idToken }
+  );
+  assert.equal(merge.response.status, 200);
+  assert.equal(merge.body.success, true);
+  assert.equal(merge.body.transferredPolls >= 1, true);
+
+  const oldOwnerPolls = await callWorker("listMyPolls", {}, { token: idToken });
+  assert.equal(oldOwnerPolls.body.polls.some(item => item.code === poll.code), false);
+  const registeredPolls = await callWorker("listMyPolls", {}, { token: registeredToken });
+  assert.equal(registeredPolls.body.polls.some(item => item.code === poll.code), true);
+  assert.equal((await getDoc(pollRef)).data().ownerUid, registeredCredential.user.uid);
+
+  const creationAfterLogin = await callWorker(
+    "createPoll",
+    { question: "Created after registration", options: ["One", "Two"] },
+    { token: registeredToken }
+  );
+  assert.equal(creationAfterLogin.response.status, 200);
+  const refreshedRegisteredPolls = await callWorker("listMyPolls", {}, { token: registeredToken });
+  assert.equal(refreshedRegisteredPolls.body.polls.some(item => item.code === creationAfterLogin.body.poll.code), true);
+
   await expectFirebaseError(() => getDocs(collection(db, "polls")), "permission-denied");
   await expectFirebaseError(() => updateDoc(pollRef, { question: "Manipulated question" }), "permission-denied");
   await expectFirebaseError(() => updateDoc(pollRef, { totalVotes: 999 }), "permission-denied");
@@ -183,6 +268,12 @@ try {
     409
   );
 
+  await expectWorkerError(
+    () => callWorker("castVote", { code: poll.code, optionId: poll.options[0].id }, { token: registeredToken }),
+    "already-voted",
+    409
+  );
+
   const afterDuplicate = await getDoc(pollRef);
   assert.equal(afterDuplicate.data().totalVotes, 1);
   assert.equal(afterDuplicate.data().options[0].votes, 0);
@@ -190,5 +281,6 @@ try {
 
   console.log("Cloudflare Worker security integration tests passed.");
 } finally {
+  await deleteApp(registeredApp);
   await deleteApp(app);
 }

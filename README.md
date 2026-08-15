@@ -18,6 +18,8 @@ Create a poll, share the link or code, and watch the results update in real time
 - Share polls using a link or unique code
 - Real-time voting results
 - One vote per Firebase user session
+- Optional Google account linking without blocking guest use
+- My Polls dashboard for signed-in users
 - Light and Dark Mode
 - Responsive design for desktop and mobile
 - Secure server-side poll creation and voting
@@ -34,14 +36,15 @@ EasyVote uses a serverless architecture combining Firebase and Cloudflare.
 Browser
    │
    ├── Firebase Authentication
-   │       └── Anonymous Auth / ID Token
+   │       └── Anonymous Auth / optional Google linking / ID Token
    │
    ▼
 Cloudflare Worker
    │
    ├── Firebase ID Token verification
    ├── Input validation
-   ├── Poll creation
+   ├── Poll creation and ownership lookup
+   ├── Conflict-safe guest poll transfer
    └── Atomic vote processing
    │
    ▼
@@ -93,6 +96,8 @@ The production architecture includes:
 - Server-side input validation
 - Atomic Firestore vote transactions
 - Duplicate-vote protection per Firebase UID
+- Google account linking preserves the anonymous UID whenever Firebase permits it
+- Conflict-safe ownership migration happens before replacing an anonymous session
 - Firestore writes denied to clients
 - Vote records inaccessible from the client
 - Privileged credentials stored exclusively as Cloudflare Secrets
@@ -168,8 +173,6 @@ The `functions/` implementation is preserved as an alternative Firebase Cloud Fu
 
 Planned improvements include:
 
-- Google Sign-In
-- My Polls dashboard
 - Poll management
 - Improved mobile navigation
 - Custom EasyVote domain

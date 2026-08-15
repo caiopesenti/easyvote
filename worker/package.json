@@ -6,6 +6,7 @@
     "dev": "wrangler dev --env local",
     "check": "wrangler deploy --dry-run --env local --outdir .wrangler-build",
     "test:validation": "node --test test/validation.test.mjs",
+    "test:auth": "node test/auth.integration.mjs",
     "test:security": "node test/security.integration.mjs",
     "test:security:http": "node test/run-http.integration.mjs"
   },

@@ -58,4 +58,25 @@ function validateVoteInput(data) {
   return { code, optionId };
 }
 
-export { CODE_ALPHABET, CODE_LENGTH, validatePollInput, validateVoteInput };
+function validateEmptyInput(data) {
+  assertOnlyKeys(data, []);
+  return {};
+}
+
+function validateAccountMergeInput(data) {
+  assertOnlyKeys(data, ["targetIdToken"]);
+  const targetIdToken = asTrimmedText(data.targetIdToken);
+  if (!targetIdToken || targetIdToken.length > 8_192) {
+    throw new ApiError("invalid-argument", "Invalid account merge request.");
+  }
+  return { targetIdToken };
+}
+
+export {
+  CODE_ALPHABET,
+  CODE_LENGTH,
+  validateAccountMergeInput,
+  validateEmptyInput,
+  validatePollInput,
+  validateVoteInput
+};

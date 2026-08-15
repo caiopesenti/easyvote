@@ -185,6 +185,79 @@ async function batchGetDocuments(env, paths, transaction) {
   });
 }
 
+async function queryPollsByOwner(env, ownerUid, limit = 100) {
+  const response = await firestoreRequest(env, "/documents:runQuery", {
+    method: "POST",
+    body: {
+      structuredQuery: {
+        from: [{ collectionId: "polls" }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath: "ownerUid" },
+            op: "EQUAL",
+            value: encodeValue(ownerUid)
+          }
+        },
+        limit
+      }
+    }
+  });
+
+  const rows = Array.isArray(response) ? response : [response];
+  return rows
+    .filter(row => row?.document)
+    .map(row => ({
+      name: row.document.name,
+      updateTime: row.document.updateTime,
+      data: decodeFields(row.document.fields || {})
+    }));
+}
+
+async function transferPollOwnership(env, sourceUid, targetUid) {
+  const batchSize = 500;
+  const maxBatches = 20;
+  let transferred = 0;
+
+  for (let batch = 0; batch < maxBatches; batch += 1) {
+    const polls = await queryPollsByOwner(env, sourceUid, batchSize);
+    if (!polls.length) return transferred;
+
+    await firestoreRequest(env, "/documents:commit", {
+      method: "POST",
+      body: {
+        writes: polls.map(poll => ({
+          update: {
+            name: poll.name,
+            fields: encodeFields({ ownerUid: targetUid })
+          },
+          updateMask: { fieldPaths: ["ownerUid"] }
+        }))
+      }
+    });
+    transferred += polls.length;
+    if (polls.length < batchSize) return transferred;
+  }
+
+  throw new FirestoreError(409, "RESOURCE_EXHAUSTED", "Too many polls to transfer in one request.");
+}
+
+async function recordMergedAnonymousUid(env, targetUid, sourceUid) {
+  return firestoreRequest(env, "/documents:commit", {
+    method: "POST",
+    body: {
+      writes: [{
+        transform: {
+          document: documentName(env, `accounts/${targetUid}`),
+          fieldTransforms: [{
+            fieldPath: "mergedAnonymousUids",
+            appendMissingElements: { values: [encodeValue(sourceUid)] }
+          }]
+        }
+      }]
+    }
+  });
+}
+
 async function commitVote(env, { transaction, pollPath, votePath, options, totalVotes, optionId }) {
   return firestoreRequest(env, "/documents:commit", {
     method: "POST",
@@ -226,5 +299,8 @@ export {
   createPollDocument,
   FirestoreError,
   getDocument,
-  rollbackTransaction
+  queryPollsByOwner,
+  recordMergedAnonymousUid,
+  rollbackTransaction,
+  transferPollOwnership
 };

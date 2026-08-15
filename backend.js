@@ -54,4 +54,23 @@ async function castVoteSecure(payload) {
   return response.data;
 }
 
-export { castVoteSecure, createPollSecure };
+async function listMyPollsSecure() {
+  if (!workerBaseUrl) {
+    throw Object.assign(new Error("My Polls requires the EasyVote API."), { code: "unavailable" });
+  }
+  return callWorker("listMyPolls", {});
+}
+
+async function mergeAnonymousAccountSecure(targetIdToken) {
+  if (!workerBaseUrl) {
+    throw Object.assign(new Error("Account migration requires the EasyVote API."), { code: "unavailable" });
+  }
+  return callWorker("mergeAnonymousAccount", { targetIdToken });
+}
+
+export {
+  castVoteSecure,
+  createPollSecure,
+  listMyPollsSecure,
+  mergeAnonymousAccountSecure
+};

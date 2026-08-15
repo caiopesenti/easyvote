@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ApiError } from "../src/errors.js";
-import { validatePollInput, validateVoteInput } from "../src/validation.js";
+import {
+  validateAccountMergeInput,
+  validateEmptyInput,
+  validatePollInput,
+  validateVoteInput
+} from "../src/validation.js";
 
 function assertApiError(operation, code) {
   assert.throws(operation, error => error instanceof ApiError && error.code === code);
@@ -30,4 +35,17 @@ test("vote input accepts only code and optionId", () => {
   });
   assertApiError(() => validateVoteInput({ code: "ABC23", optionId: "one", totalVotes: 999 }), "invalid-argument");
   assertApiError(() => validateVoteInput({ code: "BAD!", optionId: "one" }), "invalid-argument");
+});
+
+test("account endpoints reject unexpected or missing fields", () => {
+  assert.deepEqual(validateEmptyInput({}), {});
+  assertApiError(() => validateEmptyInput({ ownerUid: "attacker" }), "invalid-argument");
+  assert.deepEqual(validateAccountMergeInput({ targetIdToken: " target-token " }), {
+    targetIdToken: "target-token"
+  });
+  assertApiError(() => validateAccountMergeInput({}), "invalid-argument");
+  assertApiError(
+    () => validateAccountMergeInput({ targetIdToken: "token", sourceUid: "attacker" }),
+    "invalid-argument"
+  );
 });

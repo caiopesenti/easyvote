@@ -3,8 +3,20 @@ import {
   getDoc,
   onSnapshot
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
-import { castVoteSecure, createPollSecure } from "./backend.js";
-import { db } from "./firebase.js";
+import {
+  castVoteSecure,
+  createPollSecure,
+  listMyPollsSecure,
+  mergeAnonymousAccountSecure
+} from "./backend.js";
+import {
+  db,
+  getAuthUser,
+  isRegisteredUser,
+  signInWithGoogle,
+  signOutToGuest,
+  subscribeToAuthState
+} from "./firebase.js";
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
@@ -21,6 +33,9 @@ let createDraft = { question: "", options: ["", ""] };
 let selectedOptionId = null;
 let hasUnsavedDraft = false;
 let shouldAnimateNextView = false;
+let accountMenuOpen = false;
+let myPollsRequestId = 0;
+let signInInProgress = false;
 let hasPlayedHomeIntro = (() => {
   try {
     return sessionStorage.getItem(HOME_INTRO_STORAGE_KEY) === "true";
@@ -95,6 +110,12 @@ function friendlyErrorMessage(error) {
     "unauthenticated": "We couldn't verify your session. Please refresh and try again.",
     "permission-denied": "You don't have permission to do that.",
     "unavailable": "The voting service is unavailable. Please try again shortly.",
+    "auth/account-exists-with-different-credential": "This email already uses another sign-in method.",
+    "auth/credential-already-in-use": "This Google account is already connected to EasyVote.",
+    "auth/network-request-failed": "We couldn't reach Google Sign-In. Check your connection and try again.",
+    "auth/popup-blocked": "Your browser blocked the Google Sign-In window. Allow popups and try again.",
+    "auth/popup-closed-by-user": "Google Sign-In was canceled.",
+    "auth/unauthorized-domain": "Google Sign-In is not enabled for this domain yet.",
     "functions/already-exists": "You have already voted in this poll.",
     "functions/failed-precondition": "This poll is no longer accepting votes.",
     "functions/invalid-argument": "Please check the poll details and try again.",
@@ -160,12 +181,65 @@ function navbarLinks() {
   </nav>`;
 }
 
+function safeAvatarUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function accountLabel(user) {
+  return user?.displayName?.trim() || user?.email?.split("@")[0] || "Account";
+}
+
+function accountAvatar(user) {
+  const photoUrl = safeAvatarUrl(user?.photoURL);
+  if (photoUrl) {
+    return `<img class="account-avatar-image" src="${escapeHtml(photoUrl)}" alt="" referrerpolicy="no-referrer" />`;
+  }
+  const initial = accountLabel(user).charAt(0).toUpperCase() || "A";
+  return `<span class="account-avatar-fallback" aria-hidden="true">${escapeHtml(initial)}</span>`;
+}
+
 function navbarAccount() {
+  const user = getAuthUser();
+  if (isRegisteredUser(user)) {
+    const label = accountLabel(user);
+    return `<div class="navbar-account" aria-label="Account navigation">
+      <div class="account-control">
+        <button class="account-button" type="button" data-action="account-menu" aria-expanded="${accountMenuOpen}" aria-haspopup="menu" aria-label="Open account menu for ${escapeHtml(label)}">
+          <span class="account-avatar">${accountAvatar(user)}</span>
+          <span class="account-name">${escapeHtml(label.split(/\s+/)[0])}</span>
+          <svg class="account-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+        </button>
+        ${accountMenuOpen ? `<div class="account-menu" role="menu">
+          <div class="account-menu-identity">
+            <strong>${escapeHtml(label)}</strong>
+            ${user.email ? `<span>${escapeHtml(user.email)}</span>` : ""}
+          </div>
+          <button type="button" data-action="sign-out" role="menuitem">Sign out</button>
+        </div>` : ""}
+      </div>
+      ${themeToggle()}
+    </div>`;
+  }
+
   return `<div class="navbar-account" aria-label="Account navigation">
-    <button class="navbar-sign-in" type="button" data-action="my-polls">Sign in</button>
-    <button class="navbar-enter" type="button" data-action="my-polls">Enter</button>
+    <button class="navbar-sign-in" type="button" data-action="sign-in">Sign in</button>
+    <button class="navbar-enter" type="button" data-action="sign-in">Enter</button>
     ${themeToggle()}
   </div>`;
+}
+
+function refreshNavbarAccount() {
+  const currentAccount = document.querySelector(".navbar-account");
+  if (!currentAccount) return;
+  const template = document.createElement("template");
+  template.innerHTML = navbarAccount().trim();
+  currentAccount.replaceWith(template.content.firstElementChild);
+  applyTheme(document.documentElement.dataset.theme, false);
 }
 
 function layout(content, modifier = "") {
@@ -184,6 +258,7 @@ function stopPolling() {
 
 function navigate(view, { poll = null, replaceUrl = true } = {}) {
   stopPolling();
+  accountMenuOpen = false;
   shouldAnimateNextView = view !== currentView;
   currentView = view;
   selectedOptionId = null;
@@ -206,12 +281,83 @@ function navigate(view, { poll = null, replaceUrl = true } = {}) {
 
 function renderMyPolls() {
   hasUnsavedDraft = false;
-  layout(`<section class="empty-state my-polls-empty">
-    <p class="eyebrow">My Polls</p>
-    <h1>Sign in to see your polls</h1>
-    <p>Keep track of the polls you create and access them anytime.</p>
-    <button class="button button-primary" type="button" data-action="sign-in">Sign in</button>
+  const user = getAuthUser();
+  if (!isRegisteredUser(user)) {
+    myPollsRequestId += 1;
+    layout(`<section class="empty-state my-polls-empty">
+      <p class="eyebrow">My Polls</p>
+      <h1>Sign in to see your polls</h1>
+      <p>Keep track of the polls you create and access them anytime.</p>
+      <button class="button button-primary" type="button" data-action="sign-in">Sign in with Google</button>
+    </section>`);
+    return;
+  }
+
+  const requestId = ++myPollsRequestId;
+  layout(`<section class="my-polls-page">
+    <div class="page-intro">
+      <p class="eyebrow">My Polls</p>
+      <h1>Welcome back, ${escapeHtml(accountLabel(user).split(/\s+/)[0])}.</h1>
+      <p>Polls you create are saved to your account.</p>
+    </div>
+    <div class="my-polls-loading" role="status">Loading your polls…</div>
   </section>`);
+  loadMyPolls(user.uid, requestId);
+}
+
+function pollCreatedLabel(createdAt) {
+  if (!createdAt) return "Created recently";
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return "Created recently";
+  return `Created ${new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(date)}`;
+}
+
+function renderMyPollsResults(user, polls) {
+  const content = polls.length
+    ? `<div class="my-polls-grid">${polls.map(poll => `<article class="my-poll-card">
+        <div class="my-poll-card-heading">
+          <span class="poll-status">${escapeHtml(poll.status || "open")}</span>
+          <span class="poll-code-label">${escapeHtml(poll.code)}</span>
+        </div>
+        <h2>${escapeHtml(poll.question)}</h2>
+        <p>${poll.totalVotes || 0} ${(poll.totalVotes || 0) === 1 ? "vote" : "votes"} · ${escapeHtml(pollCreatedLabel(poll.createdAt))}</p>
+        <div class="my-poll-actions">
+          <button class="button button-secondary" type="button" data-action="open-my-poll" data-code="${escapeHtml(poll.code)}">View poll</button>
+          <button class="text-button" type="button" data-action="open-my-results" data-code="${escapeHtml(poll.code)}">Results</button>
+        </div>
+      </article>`).join("")}</div>`
+    : `<div class="my-polls-empty-account">
+        <h2>No polls yet</h2>
+        <p>Create your first poll and it will appear here.</p>
+        <button class="button button-primary" type="button" data-action="create">Create Poll</button>
+      </div>`;
+
+  layout(`<section class="my-polls-page">
+    <div class="page-intro">
+      <p class="eyebrow">My Polls</p>
+      <h1>Welcome back, ${escapeHtml(accountLabel(user).split(/\s+/)[0])}.</h1>
+      <p>Polls you create are saved to your account.</p>
+    </div>
+    ${content}
+  </section>`);
+}
+
+async function loadMyPolls(uid, requestId) {
+  try {
+    const response = await listMyPollsSecure();
+    const user = getAuthUser();
+    if (requestId !== myPollsRequestId || currentView !== "my-polls" || user?.uid !== uid) return;
+    renderMyPollsResults(user, Array.isArray(response.polls) ? response.polls : []);
+  } catch (error) {
+    if (requestId !== myPollsRequestId || currentView !== "my-polls") return;
+    showToast(friendlyErrorMessage(error), "error");
+    layout(`<section class="empty-state my-polls-empty">
+      <p class="eyebrow">My Polls</p>
+      <h1>We couldn't load your polls</h1>
+      <p>Please try again in a moment.</p>
+      <button class="button button-primary" type="button" data-action="retry-my-polls">Try again</button>
+    </section>`);
+  }
 }
 
 function renderHome() {
@@ -406,6 +552,50 @@ function confirmLeaveDraft() {
   return window.confirm("Leave this poll? Your unfinished changes will be lost.");
 }
 
+async function handleGoogleSignIn() {
+  if (signInInProgress) return;
+  signInInProgress = true;
+  const buttons = [...document.querySelectorAll("[data-action='sign-in']")];
+  for (const button of buttons) {
+    button.disabled = true;
+    button.dataset.originalText = button.textContent;
+    button.textContent = "Signing in…";
+  }
+
+  try {
+    const result = await signInWithGoogle(mergeAnonymousAccountSecure);
+    accountMenuOpen = false;
+    const migrationMessage = result.transferredPolls
+      ? ` Signed in and moved ${result.transferredPolls} ${result.transferredPolls === 1 ? "poll" : "polls"} to your account.`
+      : " Signed in with Google.";
+    showToast(migrationMessage.trim());
+    if (currentView === "my-polls") renderMyPolls();
+    else refreshNavbarAccount();
+  } finally {
+    signInInProgress = false;
+    for (const button of buttons) {
+      if (!button.isConnected) continue;
+      button.disabled = false;
+      button.textContent = button.dataset.originalText || "Sign in";
+      delete button.dataset.originalText;
+    }
+  }
+}
+
+async function handleSignOut() {
+  accountMenuOpen = false;
+  await signOutToGuest();
+  showToast("Signed out. You're continuing as a guest.");
+  if (currentView === "my-polls") renderMyPolls();
+  else refreshNavbarAccount();
+}
+
+async function openMyPoll(code, destination) {
+  const snapshot = await getDoc(doc(db, "polls", code));
+  if (!snapshot.exists()) throw Object.assign(new Error("Poll not found."), { code: "poll-not-found" });
+  navigate(destination, { poll: snapshot.data() });
+}
+
 document.addEventListener("input", event => {
   if (event.target.id === "question") {
     createDraft.question = event.target.value;
@@ -439,14 +629,28 @@ document.addEventListener("submit", async event => {
 
 document.addEventListener("click", async event => {
   const target = event.target.closest("[data-action]");
-  if (!target) return;
+  if (!target) {
+    if (accountMenuOpen && !event.target.closest(".account-control")) {
+      accountMenuOpen = false;
+      refreshNavbarAccount();
+    }
+    return;
+  }
   const { action } = target.dataset;
   try {
     if (action === "toggle-theme") applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
     if (action === "home") { if (confirmLeaveDraft()) navigate("home"); }
     if (action === "create") navigate("create");
     if (action === "my-polls") { if (confirmLeaveDraft()) navigate("my-polls"); }
-    if (action === "sign-in") showToast("Sign in is coming soon.");
+    if (action === "sign-in") await handleGoogleSignIn();
+    if (action === "account-menu") {
+      accountMenuOpen = !accountMenuOpen;
+      refreshNavbarAccount();
+    }
+    if (action === "sign-out") await handleSignOut();
+    if (action === "retry-my-polls") renderMyPolls();
+    if (action === "open-my-poll") await openMyPoll(target.dataset.code, "poll");
+    if (action === "open-my-results") await openMyPoll(target.dataset.code, "results");
     if (action === "add-option" && createDraft.options.length < MAX_OPTIONS) { createDraft.options.push(""); renderCreate(); }
     if (action === "remove-option") { createDraft.options.splice(Number(target.dataset.optionIndex), 1); renderCreate(); }
     if (action === "view-poll") navigate("poll", { poll: activePoll });
@@ -459,10 +663,23 @@ document.addEventListener("click", async event => {
   }
 });
 
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && accountMenuOpen) {
+    accountMenuOpen = false;
+    refreshNavbarAccount();
+  }
+});
+
 window.addEventListener("popstate", () => {
   const code = new URLSearchParams(window.location.search).get("poll");
   if (code) navigate("poll", { poll: { code }, replaceUrl: false });
   else navigate("home", { replaceUrl: false });
+});
+
+subscribeToAuthState(user => {
+  if (!isRegisteredUser(user)) accountMenuOpen = false;
+  if (currentView === "my-polls") renderMyPolls();
+  else refreshNavbarAccount();
 });
 
 const initialCode = new URLSearchParams(window.location.search).get("poll");

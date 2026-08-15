@@ -34,15 +34,10 @@ function validateClaims(payload, projectId) {
     throw new ApiError("unauthenticated", "Authentication is required.", 401);
   }
 
-  return payload.sub;
+  return payload;
 }
 
-async function verifyFirebaseIdToken(request, env) {
-  const authorization = request.headers.get("Authorization") || "";
-  const match = authorization.match(/^Bearer\s+([^\s]+)$/i);
-  if (!match) throw new ApiError("unauthenticated", "Authentication is required.", 401);
-
-  const idToken = match[1];
+async function verifyFirebaseToken(idToken, request, env) {
   try {
     if (isEmulatorRequest(request, env)) {
       const header = decodeProtectedHeader(idToken);
@@ -64,4 +59,16 @@ async function verifyFirebaseIdToken(request, env) {
   }
 }
 
-export { verifyFirebaseIdToken };
+async function verifyFirebaseIdentity(request, env) {
+  const authorization = request.headers.get("Authorization") || "";
+  const match = authorization.match(/^Bearer\s+([^\s]+)$/i);
+  if (!match) throw new ApiError("unauthenticated", "Authentication is required.", 401);
+  return verifyFirebaseToken(match[1], request, env);
+}
+
+async function verifyFirebaseIdToken(request, env) {
+  const identity = await verifyFirebaseIdentity(request, env);
+  return identity.sub;
+}
+
+export { verifyFirebaseIdentity, verifyFirebaseIdToken, verifyFirebaseToken };
