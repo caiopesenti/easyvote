@@ -1,0 +1,4 @@
+# Local emulator mode does not use real credentials. The values below are only
+# needed if you intentionally run the Worker locally against production data.
+FIREBASE_CLIENT_EMAIL="service-account@project-id.iam.gserviceaccount.com"
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nREPLACE_ME\n-----END PRIVATE KEY-----\n"

@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "easyvote-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-13",
+  "workers_dev": true,
+  "vars": {
+    "ENVIRONMENT": "production",
+    "FIREBASE_PROJECT_ID": "enquete-ia-sabe-codar",
+    "ALLOWED_ORIGINS": "https://enquete-ia-sabe-codar.web.app,https://enquete-ia-sabe-codar.firebaseapp.com"
+  },
+  "secrets": {
+    "required": [
+      "FIREBASE_CLIENT_EMAIL",
+      "FIREBASE_PRIVATE_KEY"
+    ]
+  },
+  "dev": {
+    "ip": "127.0.0.1",
+    "port": 8787,
+    "local_protocol": "http"
+  },
+  "env": {
+    "local": {
+      "name": "easyvote-api-local",
+      "vars": {
+        "ENVIRONMENT": "development",
+        "FIREBASE_PROJECT_ID": "enquete-ia-sabe-codar",
+        "FIREBASE_EMULATOR_MODE": "true",
+        "FIREBASE_AUTH_EMULATOR_HOST": "127.0.0.1:9099",
+        "FIRESTORE_EMULATOR_HOST": "127.0.0.1:8080",
+        "ALLOWED_ORIGINS": "http://127.0.0.1:5000,http://localhost:5000"
+      },
+      "secrets": {
+        "required": []
+      }
+    }
+  }
+}

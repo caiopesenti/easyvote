@@ -1,12 +1,10 @@
 import {
   doc,
   getDoc,
-  onSnapshot,
-  runTransaction,
-  serverTimestamp,
-  setDoc
+  onSnapshot
 } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
-import { db, getCurrentUser } from "./firebase.js";
+import { castVoteSecure, createPollSecure } from "./backend.js";
+import { db } from "./firebase.js";
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
@@ -22,6 +20,7 @@ let pollUnsubscribe = null;
 let createDraft = { question: "", options: ["", ""] };
 let selectedOptionId = null;
 let hasUnsavedDraft = false;
+let shouldAnimateNextView = false;
 let hasPlayedHomeIntro = (() => {
   try {
     return sessionStorage.getItem(HOME_INTRO_STORAGE_KEY) === "true";
@@ -85,6 +84,28 @@ function showToast(message, type = "success") {
   showToast.timer = window.setTimeout(() => toast.classList.remove("is-visible"), 3200);
 }
 
+function friendlyErrorMessage(error) {
+  const messages = {
+    "poll-code-required": "Enter a poll code first.",
+    "poll-not-found": "Poll not found",
+    "already-voted": "You have already voted in this poll.",
+    "failed-precondition": "This poll is no longer accepting votes.",
+    "invalid-argument": "Please check the poll details and try again.",
+    "not-found": "Poll not found",
+    "unauthenticated": "We couldn't verify your session. Please refresh and try again.",
+    "permission-denied": "You don't have permission to do that.",
+    "unavailable": "The voting service is unavailable. Please try again shortly.",
+    "functions/already-exists": "You have already voted in this poll.",
+    "functions/failed-precondition": "This poll is no longer accepting votes.",
+    "functions/invalid-argument": "Please check the poll details and try again.",
+    "functions/not-found": "Poll not found",
+    "functions/unauthenticated": "We couldn't verify your session. Please refresh and try again.",
+    "functions/permission-denied": "You don't have permission to do that.",
+    "functions/unavailable": "The voting service is unavailable. Please try again shortly."
+  };
+  return messages[error?.code] || "Something went wrong. Please try again.";
+}
+
 function markHomeIntroPlayed() {
   hasPlayedHomeIntro = true;
   try {
@@ -130,10 +151,29 @@ function themeToggle() {
   </button>`;
 }
 
+function navbarLinks() {
+  const createIsActive = currentView === "create" || currentView === "created";
+  const myPollsIsActive = currentView === "my-polls";
+  return `<nav class="navbar-links" aria-label="Primary navigation">
+    <button class="navbar-link${createIsActive ? " is-active" : ""}" type="button" data-action="create"${createIsActive ? ' aria-current="page"' : ""}>Create poll</button>
+    <button class="navbar-link${myPollsIsActive ? " is-active" : ""}" type="button" data-action="my-polls"${myPollsIsActive ? ' aria-current="page"' : ""}>My Polls</button>
+  </nav>`;
+}
+
+function navbarAccount() {
+  return `<div class="navbar-account" aria-label="Account navigation">
+    <button class="navbar-sign-in" type="button" data-action="my-polls">Sign in</button>
+    <button class="navbar-enter" type="button" data-action="my-polls">Enter</button>
+    ${themeToggle()}
+  </div>`;
+}
+
 function layout(content, modifier = "") {
+  const transitionClass = shouldAnimateNextView ? " view-enter" : "";
+  shouldAnimateNextView = false;
   app.innerHTML = `<main class="page ${modifier}">
-    <header class="site-header">${logo()}${themeToggle()}</header>
-    ${content}
+    <header class="site-header">${logo()}${navbarLinks()}${navbarAccount()}</header>
+    <div class="view-content${transitionClass}">${content}</div>
   </main>`;
 }
 
@@ -144,6 +184,7 @@ function stopPolling() {
 
 function navigate(view, { poll = null, replaceUrl = true } = {}) {
   stopPolling();
+  shouldAnimateNextView = view !== currentView;
   currentView = view;
   selectedOptionId = null;
   if (poll) activePoll = poll;
@@ -157,9 +198,20 @@ function navigate(view, { poll = null, replaceUrl = true } = {}) {
 
   if (view === "home") renderHome();
   if (view === "create") renderCreate();
+  if (view === "my-polls") renderMyPolls();
   if (view === "created") renderCreated();
   if (view === "poll") subscribeToPoll(activePoll?.code, renderPoll);
   if (view === "results") subscribeToPoll(activePoll?.code, renderResults);
+}
+
+function renderMyPolls() {
+  hasUnsavedDraft = false;
+  layout(`<section class="empty-state my-polls-empty">
+    <p class="eyebrow">My Polls</p>
+    <h1>Sign in to see your polls</h1>
+    <p>Keep track of the polls you create and access them anytime.</p>
+    <button class="button button-primary" type="button" data-action="sign-in">Sign in</button>
+  </section>`);
 }
 
 function renderHome() {
@@ -181,7 +233,38 @@ function renderHome() {
         <button class="button button-secondary" type="submit">Join</button>
       </div>
     </form>
-  </section>`);
+  </section>
+  <section class="features" aria-labelledby="features-title">
+    <div class="features-intro">
+      <p class="eyebrow">Made for quick decisions</p>
+      <h2 id="features-title">Everything you need to decide, together.</h2>
+    </div>
+    <div class="features-grid">
+      <article class="feature-card">
+        <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 19.5h14M7.5 16.5l8.9-8.9a2.1 2.1 0 0 0-3-3l-8.9 8.9L4 17l3.5-.5Z" /></svg></span>
+        <h3>Create in seconds</h3>
+        <p>Build a poll with your own question and options in just a few clicks.</p>
+      </article>
+      <article class="feature-card">
+        <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" /><path d="M12 8v8M8 12h8" /></svg></span>
+        <h3>Share instantly</h3>
+        <p>Every poll gets a simple code and link, ready to share anywhere.</p>
+      </article>
+      <article class="feature-card">
+        <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 18V11M12 18V6M19 18v-4" /><path d="M4 20h16" /></svg></span>
+        <h3>Live results</h3>
+        <p>Watch votes and percentages update in real time as people decide.</p>
+      </article>
+      <article class="feature-card">
+        <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 7 3.5v5.2c0 4.1-2.7 7.9-7 9.3-4.3-1.4-7-5.2-7-9.3V6.5L12 3Z" /><path d="m8.8 12 2.1 2.1 4.3-4.4" /></svg></span>
+        <h3>Secure voting</h3>
+        <p>Votes are securely processed to help keep results reliable and fair.</p>
+      </article>
+    </div>
+  </section>
+  <footer class="site-footer">
+    <p>© 2026 EasyVote. All Rights Reserved.</p>
+  </footer>`);
 
   if (shouldAnimateSlogan) {
     markHomeIntroPlayed();
@@ -267,7 +350,7 @@ function renderResults(poll) {
 }
 
 function renderMissingPoll() {
-  layout(`<section class="empty-state"><p class="eyebrow">Poll not found</p><h1>We couldn't find that poll.</h1><p>Check the code and try again.</p><button class="button button-primary" type="button" data-action="home">Back home</button></section>`);
+  layout(`<section class="empty-state"><p class="eyebrow">EasyVote</p><h1>Poll not found</h1><p>Check the code and try again.</p><button class="button button-primary" type="button" data-action="home">Back home</button></section>`);
 }
 
 function subscribeToPoll(code, callback) {
@@ -287,55 +370,25 @@ function generateCode() {
 }
 
 async function createPoll() {
-  const question = createDraft.question.trim();
-  const optionTexts = createDraft.options.map(value => value.trim()).filter(Boolean);
-  if (!question) throw new Error("Add a question before creating your poll.");
-  if (optionTexts.length < MIN_OPTIONS) throw new Error("Add at least two options.");
-  if (new Set(optionTexts.map(text => text.toLocaleLowerCase())).size !== optionTexts.length) throw new Error("Each option needs a different name.");
-
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const code = generateCode();
-    const ref = doc(db, "polls", code);
-    if ((await getDoc(ref)).exists()) continue;
-    const poll = {
-      code,
-      question,
-      options: optionTexts.map(text => ({ id: crypto.randomUUID(), text, votes: 0 })),
-      totalVotes: 0,
-      createdAt: serverTimestamp()
-    };
-    await setDoc(ref, poll);
-    return poll;
-  }
-  throw new Error("We couldn't generate a poll code. Please try again.");
+  const response = await createPollSecure({
+    question: createDraft.question,
+    options: createDraft.options
+  });
+  return response.poll;
 }
 
 async function joinPoll(rawCode) {
   const code = rawCode.trim().toUpperCase();
-  if (!code) throw new Error("Enter a poll code first.");
+  if (!code) throw Object.assign(new Error("Poll code is required."), { code: "poll-code-required" });
   const snapshot = await getDoc(doc(db, "polls", code));
-  if (!snapshot.exists()) throw new Error("We couldn't find a poll with that code.");
+  if (!snapshot.exists()) throw Object.assign(new Error("Poll not found."), { code: "poll-not-found" });
   navigate("poll", { poll: snapshot.data() });
 }
 
 async function vote() {
   if (!activePoll || !selectedOptionId) return;
-  const user = await getCurrentUser();
-  const pollRef = doc(db, "polls", activePoll.code);
-  const voteRef = doc(db, "polls", activePoll.code, "votes", user.uid);
-  const result = await runTransaction(db, async transaction => {
-    const existingVote = await transaction.get(voteRef);
-    if (existingVote.exists()) return "already-voted";
-    const pollSnapshot = await transaction.get(pollRef);
-    if (!pollSnapshot.exists()) throw new Error("This poll is no longer available.");
-    const poll = pollSnapshot.data();
-    const options = poll.options.map(option => option.id === selectedOptionId ? { ...option, votes: option.votes + 1 } : option);
-    transaction.update(pollRef, { options, totalVotes: (poll.totalVotes || 0) + 1 });
-    transaction.set(voteRef, { optionId: selectedOptionId, createdAt: serverTimestamp() });
-    return "voted";
-  });
-  if (result === "already-voted") showToast("You have already voted in this poll.", "error");
-  else showToast("Vote recorded. Thanks!", "success");
+  await castVoteSecure({ code: activePoll.code, optionId: selectedOptionId });
+  showToast("Vote recorded. Thanks!", "success");
   navigate("results", { poll: activePoll });
 }
 
@@ -378,7 +431,7 @@ document.addEventListener("submit", async event => {
       navigate("created", { poll });
     }
   } catch (error) {
-    showToast(error.message || "Something went wrong. Please try again.", "error");
+    showToast(friendlyErrorMessage(error), "error");
     const button = event.target.querySelector('[type="submit"]');
     if (button) { button.disabled = false; button.textContent = event.target.id === "create-poll-form" ? "Create Poll" : "Join"; }
   }
@@ -392,15 +445,17 @@ document.addEventListener("click", async event => {
     if (action === "toggle-theme") applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
     if (action === "home") { if (confirmLeaveDraft()) navigate("home"); }
     if (action === "create") navigate("create");
+    if (action === "my-polls") { if (confirmLeaveDraft()) navigate("my-polls"); }
+    if (action === "sign-in") showToast("Sign in is coming soon.");
     if (action === "add-option" && createDraft.options.length < MAX_OPTIONS) { createDraft.options.push(""); renderCreate(); }
     if (action === "remove-option") { createDraft.options.splice(Number(target.dataset.optionIndex), 1); renderCreate(); }
     if (action === "view-poll") navigate("poll", { poll: activePoll });
     if (action === "select-option") { selectedOptionId = target.dataset.optionId; renderPoll(activePoll); }
     if (action === "vote") await vote();
-    if (action === "copy-code") await copyText(activePoll.code, "Poll code copied.");
-    if (action === "copy-link") await copyText(pollUrl(activePoll.code), "Poll link copied.");
+    if (action === "copy-code") await copyText(activePoll.code, "Code copied!");
+    if (action === "copy-link") await copyText(pollUrl(activePoll.code), "Link copied!");
   } catch (error) {
-    showToast(error.message || "Something went wrong. Please try again.", "error");
+    showToast(friendlyErrorMessage(error), "error");
   }
 });
 

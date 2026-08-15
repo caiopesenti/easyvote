@@ -1,0 +1,19 @@
+{
+  "name": "easyvote-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --env local",
+    "check": "wrangler deploy --dry-run --env local --outdir .wrangler-build",
+    "test:validation": "node --test test/validation.test.mjs",
+    "test:security": "node test/security.integration.mjs",
+    "test:security:http": "node test/run-http.integration.mjs"
+  },
+  "dependencies": {
+    "jose": "^6.0.0"
+  },
+  "devDependencies": {
+    "firebase": "12.2.1",
+    "wrangler": "^4.0.0"
+  }
+}

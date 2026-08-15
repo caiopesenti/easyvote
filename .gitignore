@@ -1,0 +1,13 @@
+functions/node_modules/
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+functions/.env*
+worker/node_modules/
+worker/.wrangler/
+worker/.wrangler-build/
+worker/.dev.vars*
+!worker/.dev.vars.example
+worker/.env*
+!worker/.env.example
