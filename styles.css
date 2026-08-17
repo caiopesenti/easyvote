@@ -188,7 +188,8 @@ h1, h2, p { margin-top: 0; }
 
 @media (max-width: 600px) {
   .page { padding: 116px 20px 48px; }
-  .site-header { display: grid; min-height: 116px; grid-template-areas: "brand account" "links links"; grid-template-columns: auto 1fr; gap: 4px 12px; padding: 12px 20px 10px; }
+  .site-header { display: grid; min-height: 116px; grid-template-areas: "brand account" "links links"; grid-template-columns: auto 1fr; gap: 4px 12px; padding: 12px 20px 10px; transition: transform .2s ease, border-color .22s ease, background-color .22s ease; will-change: transform; }
+  .site-header.is-scroll-hidden { transform: translateY(calc(-100% - 1px)); }
   .brand { grid-area: brand; }
   .navbar-links { grid-area: links; }
   .navbar-account { grid-area: account; justify-self: end; gap: 4px; margin-left: 0; }
@@ -222,4 +223,8 @@ h1, h2, p { margin-top: 0; }
 
 @media (prefers-reduced-motion: reduce) {
   .view-enter { animation: none; }
+}
+
+@media (max-width: 600px) and (prefers-reduced-motion: reduce) {
+  .site-header { transition: border-color .22s ease, background-color .22s ease; }
 }

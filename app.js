@@ -25,6 +25,9 @@ const MIN_OPTIONS = 2;
 const MAX_OPTIONS = 10;
 const HOME_INTRO_STORAGE_KEY = "easyvote-home-intro-played";
 const THEME_STORAGE_KEY = "easyvote-theme";
+const MOBILE_NAVBAR_MEDIA = window.matchMedia("(max-width: 600px)");
+const MOBILE_NAVBAR_TOP_LIMIT = 8;
+const MOBILE_NAVBAR_SCROLL_THRESHOLD = 24;
 
 let activePoll = null;
 let currentView = "home";
@@ -36,6 +39,10 @@ let shouldAnimateNextView = false;
 let accountMenuOpen = false;
 let myPollsRequestId = 0;
 let signInInProgress = false;
+let mobileNavbarLastScrollY = Math.max(window.scrollY, 0);
+let mobileNavbarDirection = null;
+let mobileNavbarScrollDistance = 0;
+let mobileNavbarFrame = null;
 let hasPlayedHomeIntro = (() => {
   try {
     return sessionStorage.getItem(HOME_INTRO_STORAGE_KEY) === "true";
@@ -74,6 +81,55 @@ function applyTheme(theme, persist = true) {
 }
 
 applyTheme(getSavedTheme(), false);
+
+function setMobileNavbarHidden(hidden) {
+  const header = document.querySelector(".site-header");
+  if (!header) return;
+  const shouldHide = hidden && MOBILE_NAVBAR_MEDIA.matches && window.scrollY > MOBILE_NAVBAR_TOP_LIMIT;
+  header.classList.toggle("is-scroll-hidden", shouldHide);
+}
+
+function resetMobileNavbarScroll({ showNavbar = true } = {}) {
+  mobileNavbarLastScrollY = Math.max(window.scrollY, 0);
+  mobileNavbarDirection = null;
+  mobileNavbarScrollDistance = 0;
+  if (showNavbar) setMobileNavbarHidden(false);
+}
+
+function handleMobileNavbarScroll() {
+  if (mobileNavbarFrame !== null) return;
+
+  mobileNavbarFrame = window.requestAnimationFrame(() => {
+    mobileNavbarFrame = null;
+    const currentScrollY = Math.max(window.scrollY, 0);
+
+    if (!MOBILE_NAVBAR_MEDIA.matches) {
+      resetMobileNavbarScroll();
+      return;
+    }
+
+    if (currentScrollY <= MOBILE_NAVBAR_TOP_LIMIT) {
+      resetMobileNavbarScroll();
+      return;
+    }
+
+    const delta = currentScrollY - mobileNavbarLastScrollY;
+    mobileNavbarLastScrollY = currentScrollY;
+    if (Math.abs(delta) < 2) return;
+
+    const direction = delta > 0 ? "down" : "up";
+    if (direction !== mobileNavbarDirection) {
+      mobileNavbarDirection = direction;
+      mobileNavbarScrollDistance = 0;
+    }
+
+    mobileNavbarScrollDistance += Math.abs(delta);
+    if (mobileNavbarScrollDistance < MOBILE_NAVBAR_SCROLL_THRESHOLD) return;
+
+    setMobileNavbarHidden(direction === "down");
+    mobileNavbarScrollDistance = 0;
+  });
+}
 
 function escapeHtml(value = "") {
   return String(value)
@@ -669,6 +725,9 @@ document.addEventListener("keydown", event => {
     refreshNavbarAccount();
   }
 });
+
+window.addEventListener("scroll", handleMobileNavbarScroll, { passive: true });
+MOBILE_NAVBAR_MEDIA.addEventListener("change", () => resetMobileNavbarScroll());
 
 window.addEventListener("popstate", () => {
   const code = new URLSearchParams(window.location.search).get("poll");
